@@ -8,7 +8,7 @@
 
 MODEL='../facadevgg/checkpoint.pth.tar'
 ARCH='vgg16'
-EXP='./facadevgg'
+EXP='./facadevgg2'
 CONV=13
 LR=9
 NITER=10000
