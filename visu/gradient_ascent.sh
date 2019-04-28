@@ -6,9 +6,11 @@
 #
 #!/bin/bash
 
-MODEL='/private/home/mathilde/model-to-release/alexnet/checkpoint.pth.tar'
+MODEL='../facadevgg/checkpoint.pth.tar'
 ARCH='vgg16'
-EXP='/private/home/mathilde/temp'
-CONV=6
+EXP='./facadevgg'
+CONV=13
+LR=9
+NITER=10000
 
-python gradient_ascent.py --model ${MODEL} --exp ${EXP} --conv ${CONV} --arch ${ARCH}
+CUDA_VISIBLE_DEVICES=0 python gradient_ascent.py --model ${MODEL} --exp ${EXP} --conv ${CONV} --arch ${ARCH} --lr ${LR} --niter ${NITER}

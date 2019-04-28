@@ -55,9 +55,10 @@ def main():
     for params in model.parameters():
         params.requires_grad = False
     model.eval()
+    print('Model on the GPU')
 
     def gradient_ascent(f):
-        print f,
+        print(f)
         sys.stdout.flush()
         fname_out = '{0}/layer{1}-channel{2}.jpeg'.format(repo, args.conv, f)
 
@@ -73,7 +74,8 @@ def main():
             filt_var = torch.autograd.Variable(torch.ones(1).long()*f).cuda()
             output = out.mean(3).mean(2)
             loss = - criterion(output, filt_var) - args.wd*torch.norm(x)**2
-
+            if it%100 == 0:
+                print('\rIter {} Loss: {:0.3f}'.format(it, loss.item()), end='')
             # compute gradient
             loss.backward()
 
@@ -93,9 +95,11 @@ def main():
             # save image at the last iteration
             if it == args.niter - 1:
                 a = deprocess_image(inp.numpy())
+                print('saving image {}'.format(fname_out))
                 Image.fromarray(a).save(fname_out)
 
-    map(gradient_ascent, range(CONV[args.arch][args.conv-1]))
+    print('Running on {} filters'.format(CONV[args.arch][args.conv-1]))
+    [gradient_ascent(x) for x in range(CONV[args.arch][args.conv-1])]
 
 
 def deprocess_image(x):
