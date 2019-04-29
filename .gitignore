@@ -3,5 +3,13 @@
 **/*.pyc
 *.pyc
 .ipynb_checkpoints
+
+
+*/*.jpg
+*/*.jpeg
+*/*/*.jpg
+*/*/*.jpeg
 third-parties/
 third-parties/*
+**.jpeg
+**.tar

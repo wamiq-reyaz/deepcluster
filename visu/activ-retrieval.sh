@@ -6,9 +6,9 @@
 #
 #!/bin/bash
 
-MODEL='/private/home/mathilde/model-to-release/vgg16/checkpoint.pth.tar'
-EXP='/private/home/mathilde/temp'
-CONV=5
-DATA='/datasets01/imagenet_full_size/061417/val'
+MODEL='../facadevgg/checkpoint.pth.tar'
+EXP='./ascent/facadevgg2'
+CONV=13
+DATA="/home/parawr/Projects/clusterFacadeData/superFacade"
 
 python activ-retrieval.py --model ${MODEL} --exp ${EXP} --conv ${CONV} --data ${DATA}
