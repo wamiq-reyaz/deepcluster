@@ -12,4 +12,5 @@
 third-parties/
 third-parties/*
 **.jpeg
+**.jpg
 **.tar

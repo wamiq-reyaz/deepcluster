@@ -40,4 +40,4 @@ yes | cp -f main.sh ${EXP}
 yes | cp -f *.py ${EXP}
 
 CUDA_VISIBLE_DEVICES=0 ${PYTHON} ../main.py ${DIR} --exp ${EXP} --arch ${ARCH} \
- --lr ${LR} --wd ${WD} --k ${K} --sobel --verbose --workers ${WORKERS} --batch ${BS}
+ --lr ${LR} --wd ${WD} --k ${K} --sobel --verbose --workers ${WORKERS} --batch ${BS} --checkpoints 120000
