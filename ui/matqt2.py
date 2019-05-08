@@ -32,17 +32,14 @@ class Window(QtWidgets.QMainWindow):
         self.line.setObjectName("line")
         self.workAreaLayout.addWidget(self.line)
 
-        
         self.verticalScrollBar = QtWidgets.QScrollBar(self.centralwidget)
         self.verticalScrollBar.setOrientation(QtCore.Qt.Vertical)
         self.verticalScrollBar.setObjectName("verticalScrollBar")
         self.workAreaLayout.addWidget(self.verticalScrollBar)
-        # self.workAreaLayout.addWidget(self.line)
 
         self.verticalLayoutWidget = QtWidgets.QWidget(self.centralwidget)
         self.verticalLayoutWidget.setObjectName("verticalLayoutWidget")
         self.verticalLayout = QtWidgets.QVBoxLayout(self.verticalLayoutWidget)
-        # self.verticalLayout.setContentsMargins(0, 0, 0, 0)
         self.verticalLayout.setObjectName("verticalLayout")
 
         self.horizontalSlider_resolution_v = MinMaxSlider()

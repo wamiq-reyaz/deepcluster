@@ -83,11 +83,11 @@ class ApplicationWindow(QtWidgets.QMainWindow):
         self._static_ax.clear()
         # print(self.points)
         number = np.random.randint(100000)
-        xx = self.points[self.curr_clustering][number:int(number*1.4), 0]
-        yy = self.points[self.curr_clustering][number:int(number*1.4), 1]
+        xx = self.points[self.curr_clustering][:, 0]
+        yy = self.points[self.curr_clustering][:, 1]
         self._static_ax.scatter(xx, yy, alpha=0.8)
         self._static_ax.figure.canvas.draw()
-        self.curr_clustering += 1
+        self.curr_clustering = (self.curr_clustering + 1) % self.num_clusterings
 
 
 if __name__ == "__main__":

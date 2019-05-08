@@ -287,8 +287,8 @@ def train(loader, model, crit, opt, epoch):
     return losses.avg
 
 def compute_features(dataloader, model, N):
-    if args.verbose:
-        print('Compute features')
+    # if args.verbose:
+    #     print('Compute features')
     batch_time = AverageMeter()
     end = time.time()
     model.eval()
