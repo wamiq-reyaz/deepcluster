@@ -20,8 +20,8 @@ class MinMax(QtWidgets.QWidget):
 
         self.difference = 5
         
-        self.ui.max_slider.valueChanged.connect(self.update_min)
-        self.ui.min_slider.valueChanged.connect(self.update_max)
+        self.ui.max_slider.valueChanged.connect(self.update_max)
+        self.ui.min_slider.valueChanged.connect(self.update_min)
         
 
     def set_name(self, name):
@@ -31,19 +31,23 @@ class MinMax(QtWidgets.QWidget):
         curr_min = self.ui.min_slider.value()
         curr_max = self.ui.max_slider.value()
 
-        if curr_max < curr_min - self.difference:
+        if curr_max < curr_min + self.difference:
+            self.ui.max_slider.blockSignals(True)
             self.ui.max_slider.setValue(curr_min+self.difference)
+            self.ui.max_slider.blockSignals(False)
         self.update_text()
-        self.changed.emit('min')
+        self.changed.emit(self.ui.label.text() + '_min')
 
     def update_max(self):
         curr_min = self.ui.min_slider.value()
         curr_max = self.ui.max_slider.value()
 
         if curr_min > curr_max - self.difference:
+            self.ui.min_slider.blockSignals(True)
             self.ui.min_slider.setValue(curr_max-self.difference)
+            self.ui.min_slider.blockSignals(False)
         self.update_text()        
-        self.changed.emit('max')
+        self.changed.emit(self.ui.label.text() + '_max')
 
     def update_text(self):
         self.ui.min_text.setText(str(self.ui.min_slider.value()))
