@@ -8,17 +8,31 @@ import random
 import faiss
 import numpy as np
 from glob import glob
-from PIL import Image
+# from PIL import Image
 import pandas as pd
 
 
-from matplotlib.backends.qt_compat import QtGui, QtCore, QtWidgets, is_pyqt5
-if is_pyqt5():
-    from matplotlib.backends.backend_qt5agg import (
-        FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
-else:
-    from matplotlib.backends.backend_qt4agg import (
-        FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
+from matplotlib.backends.qt_compat import QtGui, QtCore, QtWidgets
+
+QPixmap = QtGui.QPixmap
+QBrush = QtGui.QBrush
+QColor = QtGui.QColor
+QFont = QtGui.QFont
+QImage = QtGui.QImage 
+
+QSize = QtCore.QSize
+QSizeF= QtCore.QSizeF
+QRect= QtCore.QRect
+QRectF= QtCore.QRectF
+
+QWidget = QtWidgets.QWidget
+QGraphicsGridLayout  = QtWidgets.QGraphicsGridLayout
+QGraphicsScene  = QtWidgets.QGraphicsScene
+QGraphicsWidget  = QtWidgets.QGraphicsWidget
+QGridLayout = QtWidgets.QGridLayout
+QGraphicsPixmapItem= QtWidgets.QGraphicsPixmapItem
+
+from PIL.ImageQt import ImageQt
 
 from matplotlib.patches import Polygon
 from matplotlib.figure import Figure
@@ -32,7 +46,8 @@ from minmax import MinMax
 parser = argparse.ArgumentParser(description='UI for large scale data-guided asset extraction')
 
 parser.add_argument('--img_dir', help='The path to the actual dataset')
-parser.add_argument('--csv', help='CSV containing the properties of the dataset')
+parser.add_argument('--csv', help='CSV containing the Properties of the dataset')
+parser.add_argument('--fcsv', help='CSV containing the Features of the dataset')
 parser.add_argument('--debug', action='store_true', default=False,
                     help='Turn on the debug mode (default: False)')
 parser.add_argument('--weights', default=None,
@@ -46,74 +61,85 @@ DARK_THEME = True
 if DARK_THEME:
     plt.rcParams['figure.facecolor'] = 'black'
 
-
 def quad_from_ax(ax):
     xlim = ax.get_xlim()
     ylim = ax.get_ylim()
-    # print(xlim, ylim)
+
     base = np.array([xlim[0], ylim[0]])
-    # print(base)
     width = np.array([xlim[1], 0])
     height = np.array([0, ylim[1]])
+
     quad_points = np.vstack([base, base+height, (base+height)+width, base+width])
     return quad_points
 
+def pixmap_from_name(name):
+        img = ImageQt(name)
+        print(type(img))
+        w, h = img.width(), img.height()
+        print('image shape: {}x{}'.format(h, w))
+        pixmap = QPixmap.fromImage(QImage(img))
+        pixmap.detach()
+        return pixmap
+
 ######################################################################
 
-class ImagePane(QtWidgets.QGraphicsPixmapItem):
-    def __init__(self, parent=None):
-        super(ImagePane, self).__init__(parent)
+class ImagePane(QGraphicsWidget):
+
+    def __init__(self, parent=None, idx=None):
+        super(ImagePane, self).__init__(parent=parent)
+        self.pixmap = QGraphicsPixmapItem(self)
         self.active_opacity = 1.0
         self.inactive_opacity = 0.8
 
+        self._first_image_set = False
+        self.size = 300
+
+        self.pixmap.setOpacity(self.inactive_opacity)
+        self.setAcceptHoverEvents(True)
+
     def hoverEnterEvent(self, event):
-        print('aa')
-        self.setOpacity(self.active_opacity)
+        print('Entered pane', self.rect())
+        self.pixmap.setOpacity(self.active_opacity)
         
     def hoverLeaveEvent(self, event):
-        self.setOpacity(self.inactive_opacity)
+        print('left pane', self.rect())
+        self.pixmap.setOpacity(self.inactive_opacity)
 
-class ImageGrid(QtWidgets.QGraphicsView):
-    def __init__(self, 
+    def set_image(self, image):
+        self.pixmap.setPixmap(image.scaled(QSize(self.size, self.size)))
+        self.update()
+
+    def sizeHint(self, which, constraint=QSizeF()):
+        return  QSizeF(self.size, self.size) #self.pixmap.boundingRect().size()
+
+    def boundingRect(self):
+        return QRectF(0, 0,self.size,self.size)
+    
+    def mousePressEvent(self, event):
+        print('from within a pane')
+
+class ImageGrid(QGraphicsWidget):
+    def __init__(self,
                 parent=None,
                 size=(4,4)):
-        super(ImageGrid, self).__init__()
-        self.layout = QtWidgets.QGraphicsGridLayout()
+        super(ImageGrid, self).__init__(parent=parent)
 
         self.num_panes = size[0]*size[1]
         self.nrows = size[0]
         self.ncols = size[1]
-        self.panes = {ii:ImagePane(self) for ii in range(self.num_panes)}
-        self._scene = QtWidgets.QGraphicsScene(self)
 
-        # print(self.panes)
+        layout = QGraphicsGridLayout()
+        self.panes = {ii:ImagePane(self) for ii in range(self.num_panes)}
 
         for ii in range(self.num_panes):
             grid = self._linear2grid(ii)
             row = grid[0]
             col = grid[1]
-            _pane = self._scene.addWidget(self.panes[ii])
-            print(type(_pane))
-            self.layout.addItem(_pane, row, col)
 
+            print(self.panes[ii], row, col)
+            layout.addItem(self.panes[ii], row, col)
 
-        self._form = QtWidgets.QGraphicsWidget()
-        self._form.setLayout(self.layout)
-        self._scene.addItem(self._form)
-
-        # pil_img = Image.open('/home/parawr/Projects/demo/PyQtImageViewer-master/icons/light/icon_default.png')
-        pil_img = Image.open('/home/parawr/Desktop/clustering7k_4096dim.png')
-        np_img = np.array(pil_img)
-        # for _, pane in self.panes.items():
-        self.panes[0].setPixmap(self.pixmapFromArray(np_img))
-
-        self.setScene(self._scene)
-        self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
-        self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
-        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255))) #define dark gray background color
-        self.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.setLayout(layout)
 
     def _linear2grid(self, idx):
         row = idx//self.ncols
@@ -129,16 +155,76 @@ class ImageGrid(QtWidgets.QGraphicsView):
 
     def set_image(self, idxes, images):
         for idx, img in zip(idxes, images):
-            self.panes[idx].setPixmap(img)
-        return
-    
-    def pixmapFromArray(self, array):
-        # self.imageShape = QSize(array.shape[1], array.shape[0])
-        print('image shape: {}x{}'.format(array.shape[1], array.shape[0]))
-        cp = array.copy()
-        image = QtGui.QImage(cp, array.shape[1], array.shape[0], QtGui.QImage.Format_RGB888) #FIX this doesn't work for all images
-        return QtGui.QPixmap(image)
+            self.panes[idx].set_image(img)
 
+        self.update()
+
+class ImageViewer(QtWidgets.QGraphicsView):
+    def __init__(self, 
+                parent=None,
+                size=(4,4)):
+        super(ImageViewer, self).__init__()
+        
+        self.resize(800,800)
+        self._scene = QGraphicsScene(self)
+        self.image_grid = ImageGrid(size=size)
+
+        self._scene.addItem(self.image_grid)
+        self.setScene(self._scene)
+
+        self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+        self.ViewportUpdateMode(QtWidgets.QGraphicsView.BoundingRectViewportUpdate)
+        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        self.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(30, 30, 30))) #define dark gray background color
+        self.setFrameShape(QtWidgets.QFrame.NoFrame)
+
+
+    def resizeEvent(self, event):
+        self.fit_in_view()
+    
+    def fit_in_view(self):
+        rect = self.image_grid.rect()
+        if not rect.isNull():
+            print(random.randint(1,1000), rect)
+            self.setSceneRect(rect)
+
+            unity = self.transform().mapRect(QRectF(0, 0, 1, 1))
+            self.scale(1 / unity.width(), 1 / unity.height())
+            viewrect = self.viewport().rect()
+            scenerect = self.transform().mapRect(rect)
+            factor = max(viewrect.width() / scenerect.width(),
+                            viewrect.height() / scenerect.height())
+            self.scale(factor, factor)
+
+class FilterDataFrame(object):
+    def __init__(self,
+                 df=None):
+        super(FilterDataFrame, self).__init__()
+        self.df = df
+        self.numeric_cols = self.df.select_dtypes([np.number]).columns.values
+        self.num_elem = self.df.shape[0]
+        self.active_sets = {self.numeric_cols[i]:set(range(self.num_elem)) for i in range(len(self.numeric_cols))}
+        self.min_vals = {self.numeric_cols[i]:np.min(df[self.numeric_cols[i]]) for i in range(len(self.numeric_cols))}
+        self.max_vals = {self.numeric_cols[i]:np.max(df[self.numeric_cols[i]]) for i in range(len(self.numeric_cols))}
+
+        self.total_active_set = set()
+        self.update_active_set()
+
+    def filter(self, attribute, min, max):
+        assert attribute in self.numeric_cols
+        satisfy_min = set(self.df.index[df.loc[:, attribute] > min])
+        satisfy_max = set(self.df.index[df.loc[:, attribute] < max])
+        self.active_sets[attribute] = satisfy_min & satisfy_max
+        self.update_active_set()
+        
+    def update_active_set(self):
+        self.total_active_set = self.active_sets[self.numeric_cols[0]]
+        for s in self.active_sets.values():
+            self.total_active_set = self.total_active_set & s
+    def get_active_set(self):
+        return self.total_active_set
 
 class FacApp(QtWidgets.QMainWindow):
     def __init__(self, 
@@ -148,9 +234,9 @@ class FacApp(QtWidgets.QMainWindow):
         super(FacApp, self).__init__(parent)
         
         ## Layout and aesthetics
-        self.n_cols = 4
-        self.n_rows = 4
-        self.n_subplots = self.n_cols * self.n_rows
+        self.ncols = 4
+        self.nrows = 4
+        self.n_subplots = self.ncols * self.nrows
         self.eps = 0.01
         self.weps = 0.01
         self.heps = 0.01
@@ -174,15 +260,21 @@ class FacApp(QtWidgets.QMainWindow):
             self.image_list = None
 
         if args is not None:
-            print('Loading images')
+            print('Loading Images...')
             self.img_dir = args.img_dir
-            self.df = pd.read_csv(args.csv)
-            self.image_names = self.df['name']
-
-            # self.image_list = glob(os.path.join(args.img_dir, '*/*/*.jpg'))
-            # self.image_list = self.image_list + glob(os.path.join(args.img_dir, '*/*.jpg'))
+            print('Loaded Properties...')
+            self.prop_df = pd.read_csv(args.csv)
+            self.image_names = self.prop_df['name']
             self.num_images = len(self.image_names)
+            print('Loaded Properties')
 
+            print('Loading Features...')
+            self.feat_df = pd.read_csv(args.fcsv, memory_map=True)
+            print('Loaded Features')
+
+            assert self.feat_df.shape[0] == self.prop_df.shape[0]
+
+            print('property columns', self.prop_df.columns)
             print('Loaded {} images '.format(self.num_images))
 
 
@@ -190,14 +282,14 @@ class FacApp(QtWidgets.QMainWindow):
 
         ####### Set up the GUI ##################
         self.setWindowTitle('DeFeat GAX')
-        self.centralwidget = QtWidgets.QWidget()
+        self.centralwidget = QWidget()
         self.setCentralWidget(self.centralwidget)
-        self.gridLayout = QtWidgets.QGridLayout(self.centralwidget)
+        self.gridLayout = QGridLayout(self.centralwidget)
 
-        self.display_pane = QtWidgets.QWidget(self.centralwidget)
-        self.slider_pane = QtWidgets.QWidget(self.centralwidget)
-        self.hover_pane = QtWidgets.QWidget(self.centralwidget)
-        self.search_pane = QtWidgets.QWidget(self.centralwidget)
+        self.display_pane = QWidget(self.centralwidget)
+        self.slider_pane = QWidget(self.centralwidget)
+        self.hover_pane = QWidget(self.centralwidget)
+        self.search_pane = QWidget(self.centralwidget)
 
         self.gridLayout.addWidget(self.slider_pane, 0, 3, 3, 1)
         self.gridLayout.addWidget(self.display_pane, 0, 0, 3, 3)
@@ -207,28 +299,13 @@ class FacApp(QtWidgets.QMainWindow):
 
         #####################################################################################
         self.display_pane_layout = QtWidgets.QVBoxLayout(self.display_pane)
-        self.aa = ImageGrid(size=(1,1))
-        self.display_pane_layout.addWidget(self.aa)
+        self.image_viewer = ImageViewer(size=(self.nrows,self.ncols))
+        self.display_pane_layout.addWidget(self.image_viewer)
 
-        # Setup the display pane
-        # self.display_pane_layout = QtWidgets.QVBoxLayout(self.display_pane)
-        # self.canvas = FigureCanvas(Figure(figsize=(5, 5)))
-        # self.display_pane_layout.addWidget(self.canvas)
-        # self.addToolBar(NavigationToolbar(self.canvas, self.display_pane))
-
-        # self.axes = self.canvas.figure.subplots(self.n_rows, self.n_cols, sharex=True)
-        # self.axes_list = list(self.axes.ravel())
-        # self.clean_layout()
-        # self.canvas.draw()
-        # self.backgrounds = [self.canvas.copy_from_bbox(ax.bbox) for ax in self.axes.ravel()]
-        # self.artists = []
-        # self.indices = []
-        # self.active_axis = None
-        # self.patches = []
-        # self.gen_patches()
-        # self.canvas.mpl_connect('button_press_event', self.on_click)
-        # self.canvas.mpl_connect('motion_notify_event', self.on_hover)
-        # self.canvas.mpl_connect('resize_event', self.on_resize)
+        
+        for _, pane in self.image_viewer.image_grid.panes.items():
+            pane.set_image(pixmap_from_name('/home/parawr/Projects/clusterFacadeData/superFacade/Austria/'
+                            'Austria_Vienna_relation1684007_wall_1_0_ET967GUXryN8CB1BLEqmKQ_VP_0_0_FId_5638_.jpg'))
 
 
         ## The Hover pane
@@ -274,9 +351,11 @@ class FacApp(QtWidgets.QMainWindow):
         self.slider9.set_name(self.text_aspect_ratio)
         self.slider_pane_layout.addWidget(self.slider9)
 
-        
+        # self.slider10 =  MinMax(self.slider_pane)
+        # self.slider10.set_name(self.text_aspect_ratio)
+        # self.slider_pane_layout.addWidget(self.slider10)
 
-        self.connect_sliders()
+        self.connect_sliders(9)
 
         ## Set up the buttons in the search pane
         self.search_pane_layout = QtWidgets.QVBoxLayout(self.search_pane)
@@ -329,31 +408,23 @@ class FacApp(QtWidgets.QMainWindow):
             curr_elem = getattr(self, e)
             curr_elem.setFont(font)
 
-    def connect_sliders(self):
-        for ii in range(7):
+    def connect_sliders(self, num_sliders):
+        for ii in range(num_sliders):
             slider_string = 'slider' + str(ii+1)
             curr_slider = getattr(self, slider_string)
             curr_slider.changed.connect(self.on_slider_change)
 
     def load_images(self):
-        self.artists = []
         end = time.time()
         self.idx = np.random.randint(0, self.num_images, self.n_subplots)
-        # idx = list(idx)
 
-        for i, ax in enumerate(self.axes.ravel()):
+        for i, pane in enumerate(self.image_viewer.image_grid.panes.values()):
             name = pjoin(self.img_dir,self.image_names[self.idx[i]])
-            with Image.open(name) as img:
-                # ax.clear()
-                _img = ax.imshow(img, zorder=-1)
-                self.artists.append(_img)
-                ax.draw_artist(_img)
+            # img = ImageQt(name) 
+            pane.set_image(pixmap_from_name(name))
+            
 
-        
-        self.canvas.update()
-        self.canvas.flush_events()
-        self.clean_layout()
-        self.update_patches()
+        # self.image_grid.update()
         print(time.time() - end)
 
     def search(self):
@@ -368,109 +439,20 @@ class FacApp(QtWidgets.QMainWindow):
         #TODO
         pass
 
-    def on_slider_change(self, which):
-        print(which)
+    def on_slider_change(self, name, min, max):
+        # We have sets of individual indices filtered
+
+        # figure out which filter changed
+
+        # perform a lookup in the DataFrame
+
+        # Find the new indices for the changed attribute
+
+        # Perform a union
+
+        # Find curent indices that are no longer Valid, and replace       
         
-    def clean_layout(self):
-        self.canvas.figure.tight_layout()
-        self.canvas.figure.subplots_adjust(left=self.eps,
-                                           bottom=self.eps,
-                                           right=1-self.eps,
-                                           top=1-self.eps,
-                                           wspace=self.weps,
-                                           hspace=self.heps)
-        for ax in self.axes.ravel():
-            ax.axis('off')
-
-    def gen_patches(self):
-        for i, ax in enumerate(self.axes_list):
-            curr_bbox = quad_from_ax(ax)
-            props = dict(visible=False,
-                         facecolor=self.highlight_color,
-                         edgecolor=self.highlight_edge_color,
-                         linewidth=6, zorder=1)
-            p = Polygon(curr_bbox, **props)
-
-            self.patches.append(ax.add_patch(p))
-            ax.draw_artist(self.patches[i])
-
-        return
-
-
-    def on_click(self, event):
-        idx = self.axes_list.index(event.inaxes)
-        print(self.image_names[self.idx[idx]])
-
-    def on_resize(self, event):
         pass
-
-    def update_patches(self):
-        # ensure that the poylgons are stretched to the new axis size
-        for i, ax in enumerate(self.axes_list):
-            curr_bbox = quad_from_ax(ax)
-            patch = ax.patches[0]
-            patch.set_xy(curr_bbox)
-
-        # for i, ax in enumerate(self.axes_list):
-        #     patch = ax.patches[0]
-        #     print(patch.get_xy())
-        # return
-
-    def on_hover(self, event):
-        # Four cases 
-        # None to Axis
-        if self.active_axis is None and event.inaxes:
-            # Find the inaxes index
-            idx = self.axes_list.index(event.inaxes)
-            curr_axis = self.axes_list[idx]
-
-            # set active axis to hovered axis
-            self.active_axis = curr_axis
-
-            # set patch visiblity
-            curr_axis.patches[0].set_visible(True)
-            curr_axis.draw_artist(curr_axis.patches[0])
-
-        # Axis to None
-        elif event.inaxes is None and self.active_axis:
-            # Find the axis again
-            idx = self.axes_list.index(self.active_axis)
-            curr_axis = self.axes_list[idx]
-
-            # Now active axis is None
-            self.active_axis = None
-
-            # We are going out of active region and need to remove highlight
-            curr_axis.patches[0].set_visible(False)
-            curr_axis.draw_artist(curr_axis.patches[0])
-
-        # Axis to Axis
-        elif event.inaxes == self.active_axis:
-            return
-
-        # Axis1 to Axis2
-        elif event.inaxes and self.active_axis:
-            idx = self.axes_list.index(event.inaxes)
-            curr_axis = self.axes_list[idx]
-
-            active_idx = self.axes_list.index(self.active_axis)
-            active_axis = self.axes_list[active_idx]
-
-            # We are going out of active region and need to remove highlight
-            active_axis.patches[0].set_visible(False)
-            active_axis.draw_artist(active_axis.patches[0])
-
-            # Also need to highlight the new axis
-            curr_axis.patches[0].set_visible(True)
-            curr_axis.draw_artist(curr_axis.patches[0])
-            self.active_axis = curr_axis
-
-        else:
-            raise ValueError('This should never have happened')
-
-        self.canvas.update()
-        self.canvas.flush_events()
-
 
 def main(args):
     qapp = QtWidgets.QApplication(sys.argv)
@@ -486,4 +468,19 @@ def main(args):
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    # df = pd.read_csv(args.csv, memory_map=True)
+    # aa = FilterDataFrame(df)
+    # print(aa.numeric_cols)
+    # print(len(aa.active_sets))
+    # print(aa.min_vals)
+    # print(aa.max_vals)
+    # aa.filter('num_windows', 4, 10)
+    # print(len(aa.total_active_set))
+    # for ii in range(10):
+    #     print(df.loc[list(aa.total_active_set)[ii], 'name'])
+
+    # print(aa.df.loc[])
+
+
+        # self.min_vals = 
     main(args)
