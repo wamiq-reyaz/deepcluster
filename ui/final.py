@@ -60,6 +60,86 @@ def quad_from_ax(ax):
 
 ######################################################################
 
+class ImagePane(QtWidgets.QGraphicsPixmapItem):
+    def __init__(self, parent=None):
+        super(ImagePane, self).__init__(parent)
+        self.active_opacity = 1.0
+        self.inactive_opacity = 0.8
+
+    def hoverEnterEvent(self, event):
+        print('aa')
+        self.setOpacity(self.active_opacity)
+        
+    def hoverLeaveEvent(self, event):
+        self.setOpacity(self.inactive_opacity)
+
+class ImageGrid(QtWidgets.QGraphicsView):
+    def __init__(self, 
+                parent=None,
+                size=(4,4)):
+        super(ImageGrid, self).__init__()
+        self.layout = QtWidgets.QGraphicsGridLayout()
+
+        self.num_panes = size[0]*size[1]
+        self.nrows = size[0]
+        self.ncols = size[1]
+        self.panes = {ii:ImagePane(self) for ii in range(self.num_panes)}
+        self._scene = QtWidgets.QGraphicsScene(self)
+
+        # print(self.panes)
+
+        for ii in range(self.num_panes):
+            grid = self._linear2grid(ii)
+            row = grid[0]
+            col = grid[1]
+            _pane = self._scene.addWidget(self.panes[ii])
+            print(type(_pane))
+            self.layout.addItem(_pane, row, col)
+
+
+        self._form = QtWidgets.QGraphicsWidget()
+        self._form.setLayout(self.layout)
+        self._scene.addItem(self._form)
+
+        # pil_img = Image.open('/home/parawr/Projects/demo/PyQtImageViewer-master/icons/light/icon_default.png')
+        pil_img = Image.open('/home/parawr/Desktop/clustering7k_4096dim.png')
+        np_img = np.array(pil_img)
+        # for _, pane in self.panes.items():
+        self.panes[0].setPixmap(self.pixmapFromArray(np_img))
+
+        self.setScene(self._scene)
+        self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255))) #define dark gray background color
+        self.setFrameShape(QtWidgets.QFrame.NoFrame)
+
+    def _linear2grid(self, idx):
+        row = idx//self.ncols
+        col = idx%self.nrows
+
+        return (row, col)
+
+    def _grid2linear(self, grid):
+        row = grid[0]
+        col = grid[1]
+
+        return col + row*self.ncols
+
+    def set_image(self, idxes, images):
+        for idx, img in zip(idxes, images):
+            self.panes[idx].setPixmap(img)
+        return
+    
+    def pixmapFromArray(self, array):
+        # self.imageShape = QSize(array.shape[1], array.shape[0])
+        print('image shape: {}x{}'.format(array.shape[1], array.shape[0]))
+        cp = array.copy()
+        image = QtGui.QImage(cp, array.shape[1], array.shape[0], QtGui.QImage.Format_RGB888) #FIX this doesn't work for all images
+        return QtGui.QPixmap(image)
+
+
 class FacApp(QtWidgets.QMainWindow):
     def __init__(self, 
                 args=None,
@@ -124,25 +204,30 @@ class FacApp(QtWidgets.QMainWindow):
         self.gridLayout.addWidget(self.hover_pane, 3, 0, 1, 3)
         self.gridLayout.addWidget(self.search_pane, 3, 3, 1, 1)
 
-        #####################################################################################
-        # Setup the display pane
-        self.display_pane_layout = QtWidgets.QVBoxLayout(self.display_pane)
-        self.canvas = FigureCanvas(Figure(figsize=(5, 5)))
-        self.display_pane_layout.addWidget(self.canvas)
-        self.addToolBar(NavigationToolbar(self.canvas, self.display_pane))
 
-        self.axes = self.canvas.figure.subplots(self.n_rows, self.n_cols, sharex=True)
-        self.axes_list = list(self.axes.ravel())
-        self.clean_layout()
-        self.canvas.draw()
-        self.backgrounds = [self.canvas.copy_from_bbox(ax.bbox) for ax in self.axes.ravel()]
-        self.artists = []
-        self.indices = []
-        self.active_axis = None
-        self.patches = []
-        self.gen_patches()
-        self.canvas.mpl_connect('button_press_event', self.on_click)
-        self.canvas.mpl_connect('motion_notify_event', self.on_hover)
+        #####################################################################################
+        self.display_pane_layout = QtWidgets.QVBoxLayout(self.display_pane)
+        self.aa = ImageGrid(size=(1,1))
+        self.display_pane_layout.addWidget(self.aa)
+
+        # Setup the display pane
+        # self.display_pane_layout = QtWidgets.QVBoxLayout(self.display_pane)
+        # self.canvas = FigureCanvas(Figure(figsize=(5, 5)))
+        # self.display_pane_layout.addWidget(self.canvas)
+        # self.addToolBar(NavigationToolbar(self.canvas, self.display_pane))
+
+        # self.axes = self.canvas.figure.subplots(self.n_rows, self.n_cols, sharex=True)
+        # self.axes_list = list(self.axes.ravel())
+        # self.clean_layout()
+        # self.canvas.draw()
+        # self.backgrounds = [self.canvas.copy_from_bbox(ax.bbox) for ax in self.axes.ravel()]
+        # self.artists = []
+        # self.indices = []
+        # self.active_axis = None
+        # self.patches = []
+        # self.gen_patches()
+        # self.canvas.mpl_connect('button_press_event', self.on_click)
+        # self.canvas.mpl_connect('motion_notify_event', self.on_hover)
         # self.canvas.mpl_connect('resize_event', self.on_resize)
 
 
@@ -233,6 +318,9 @@ class FacApp(QtWidgets.QMainWindow):
                                'toolButton_search_image']
         self.magnify_font(elements_to_magnify)
 
+
+    def create_image(self, idx):
+        pass
 
     def magnify_font(self, elements):
         font = QtGui.QFont()
