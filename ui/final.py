@@ -74,9 +74,9 @@ def quad_from_ax(ax):
 
 def pixmap_from_name(name):
         img = ImageQt(name)
-        print(type(img))
+        # print(type(img))
         w, h = img.width(), img.height()
-        print('image shape: {}x{}'.format(h, w))
+        # print('image shape: {}x{}'.format(h, w))
         pixmap = QPixmap.fromImage(QImage(img))
         pixmap.detach()
         return pixmap
@@ -84,9 +84,10 @@ def pixmap_from_name(name):
 ######################################################################
 
 class ImagePane(QGraphicsWidget):
-
+    clicked = QtCore.Signal(int)
     def __init__(self, parent=None, idx=None):
         super(ImagePane, self).__init__(parent=parent)
+        self.idx = idx
         self.pixmap = QGraphicsPixmapItem(self)
         self.active_opacity = 1.0
         self.inactive_opacity = 0.8
@@ -98,15 +99,18 @@ class ImagePane(QGraphicsWidget):
         self.setAcceptHoverEvents(True)
 
     def hoverEnterEvent(self, event):
-        print('Entered pane', self.rect())
+        # print('Entered pane', self.rect())
         self.pixmap.setOpacity(self.active_opacity)
+        self.update()
         
     def hoverLeaveEvent(self, event):
-        print('left pane', self.rect())
+        # print('left pane', self.rect())
         self.pixmap.setOpacity(self.inactive_opacity)
+        self.update()
 
     def set_image(self, image):
         self.pixmap.setPixmap(image.scaled(QSize(self.size, self.size)))
+        self.pixmap.setOpacity(self.inactive_opacity)
         self.update()
 
     def sizeHint(self, which, constraint=QSizeF()):
@@ -116,7 +120,7 @@ class ImagePane(QGraphicsWidget):
         return QRectF(0, 0,self.size,self.size)
     
     def mousePressEvent(self, event):
-        print('from within a pane')
+        self.clicked.emit(self.idx)
 
 class ImageGrid(QGraphicsWidget):
     def __init__(self,
@@ -129,14 +133,14 @@ class ImageGrid(QGraphicsWidget):
         self.ncols = size[1]
 
         layout = QGraphicsGridLayout()
-        self.panes = {ii:ImagePane(self) for ii in range(self.num_panes)}
+        self.panes = {ii:ImagePane(self, idx=ii) for ii in range(self.num_panes)}
 
         for ii in range(self.num_panes):
             grid = self._linear2grid(ii)
             row = grid[0]
             col = grid[1]
 
-            print(self.panes[ii], row, col)
+            # print(self.panes[ii], row, col)
             layout.addItem(self.panes[ii], row, col)
 
         self.setLayout(layout)
@@ -162,7 +166,7 @@ class ImageGrid(QGraphicsWidget):
 class ImageViewer(QtWidgets.QGraphicsView):
     def __init__(self, 
                 parent=None,
-                size=(4,4)):
+                size=(10,10)):
         super(ImageViewer, self).__init__()
         
         self.resize(800,800)
@@ -187,7 +191,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
     def fit_in_view(self):
         rect = self.image_grid.rect()
         if not rect.isNull():
-            print(random.randint(1,1000), rect)
+            # print(random.randint(1,1000), rect)
             self.setSceneRect(rect)
 
             unity = self.transform().mapRect(QRectF(0, 0, 1, 1))
@@ -197,6 +201,9 @@ class ImageViewer(QtWidgets.QGraphicsView):
             factor = max(viewrect.width() / scenerect.width(),
                             viewrect.height() / scenerect.height())
             self.scale(factor, factor)
+
+    def set_image(self, idxes, images):
+        self.image_grid.set_image(idxes, images)
 
 class FilterDataFrame(object):
     def __init__(self,
@@ -214,8 +221,8 @@ class FilterDataFrame(object):
 
     def filter(self, attribute, min, max):
         assert attribute in self.numeric_cols
-        satisfy_min = set(self.df.index[df.loc[:, attribute] > min])
-        satisfy_max = set(self.df.index[df.loc[:, attribute] < max])
+        satisfy_min = set(self.df.index[self.df.loc[:, attribute] > min])
+        satisfy_max = set(self.df.index[self.df.loc[:, attribute] < max])
         self.active_sets[attribute] = satisfy_min & satisfy_max
         self.update_active_set()
         
@@ -250,6 +257,18 @@ class FacApp(QtWidgets.QMainWindow):
         self.text_viewing_angle = 'Viewing Angle'
         self.text_number_windows = '#Windows'
         self.text_aspect_ratio = 'Aspect Ratio'
+        
+        self.slider_to_attr = {self.text_resolution_h: 'height',
+                               self.text_resolution_v: 'width',
+                               self.text_num_floors: 'floors',
+                               self.text_height: 'floors',
+                               self.text_occlusion: 'total_occlusion',
+                               self.text_blur: 'noblur',
+                               self.text_viewing_angle: 'view_angle',
+                               self.text_number_windows: 'num_windows',
+                               self.text_aspect_ratio: 'aspect_ratio'}
+
+        self.pane_to_idx = []
 
         #PANTONE 3553 C
         self.highlight_color = (0, 0.423, 0.690, 0.8)
@@ -264,6 +283,7 @@ class FacApp(QtWidgets.QMainWindow):
             self.img_dir = args.img_dir
             print('Loaded Properties...')
             self.prop_df = pd.read_csv(args.csv)
+            self.filter = FilterDataFrame(self.prop_df)
             self.image_names = self.prop_df['name']
             self.num_images = len(self.image_names)
             print('Loaded Properties')
@@ -307,6 +327,7 @@ class FacApp(QtWidgets.QMainWindow):
             pane.set_image(pixmap_from_name('/home/parawr/Projects/clusterFacadeData/superFacade/Austria/'
                             'Austria_Vienna_relation1684007_wall_1_0_ET967GUXryN8CB1BLEqmKQ_VP_0_0_FId_5638_.jpg'))
 
+        self.connect_panes()
 
         ## The Hover pane
         self.hover_pane_layout = QtWidgets.QVBoxLayout(self.hover_pane)
@@ -354,6 +375,16 @@ class FacApp(QtWidgets.QMainWindow):
         # self.slider10 =  MinMax(self.slider_pane)
         # self.slider10.set_name(self.text_aspect_ratio)
         # self.slider_pane_layout.addWidget(self.slider10)
+
+        self.slider_widget_to_attr = {'slider1': 'height',
+                                      'slider2': 'width',
+                                      'slider3': 'floors',
+                                      'slider4': 'floors',
+                                      'slider5': 'total_occlusion',
+                                      'slider6': 'noblur',
+                                      'slider7': 'view_angle',
+                                      'slider8': 'num_windows',
+                                      'slider9': 'aspect_ratio',}
 
         self.connect_sliders(9)
 
@@ -407,25 +438,45 @@ class FacApp(QtWidgets.QMainWindow):
         for e in elements:
             curr_elem = getattr(self, e)
             curr_elem.setFont(font)
+    
+    def connect_panes(self):
+        for _, pane in self.image_viewer.image_grid.panes.items():
+            pane.clicked.connect(self.on_click)
 
     def connect_sliders(self, num_sliders):
         for ii in range(num_sliders):
             slider_string = 'slider' + str(ii+1)
             curr_slider = getattr(self, slider_string)
+
+            _attr = self.slider_widget_to_attr[slider_string]
+            _min = self.filter.min_vals[_attr]
+            _max = self.filter.max_vals[_attr]
+
+            curr_slider.set_limits(_min, _max)
             curr_slider.changed.connect(self.on_slider_change)
 
+
     def load_images(self):
+        
+        self.pane_to_idx = list(np.random.randint(0, self.num_images, self.n_subplots).ravel())
+
+        # self.pane_to_idx = []        
+        # for i, _ in enumerate(self.image_viewer.image_grid.panes.values()):
+        #     self.pane_to_idx.append(self.idx[i])
+
+        self.update_from_idx(list(range(self.n_subplots)))
+
+    def update_from_idx(self, idxes):
         end = time.time()
-        self.idx = np.random.randint(0, self.num_images, self.n_subplots)
+        images = []
 
-        for i, pane in enumerate(self.image_viewer.image_grid.panes.values()):
-            name = pjoin(self.img_dir,self.image_names[self.idx[i]])
-            # img = ImageQt(name) 
-            pane.set_image(pixmap_from_name(name))
-            
+        for ii in idxes:
+            name = pjoin(self.img_dir,self.image_names[self.pane_to_idx[ii]])
+            images.append(pixmap_from_name(name))
 
-        # self.image_grid.update()
-        print(time.time() - end)
+        self.image_viewer.set_image(idxes, images)
+        print('Time to update screen: {:.4f}'.format(time.time() - end))
+
 
     def search(self):
         file = QtWidgets.QFileDialog.getOpenFileName(self, 'Choose a file')
@@ -439,20 +490,43 @@ class FacApp(QtWidgets.QMainWindow):
         #TODO
         pass
 
-    def on_slider_change(self, name, min, max):
+    def on_slider_change(self, name, _min, _max):
         # We have sets of individual indices filtered
-
+        # end = time.time()
         # figure out which filter changed
-
+        _attr = self.slider_to_attr[name]
+        if not _attr in self.filter.numeric_cols:
+            raise ValueError('Invalid Atribute to filter')
         # perform a lookup in the DataFrame
-
+        self.filter.filter(_attr, _min, _max)
         # Find the new indices for the changed attribute
+        active_set = self.filter.get_active_set()
 
-        # Perform a union
+        # Find curent indices that are no longer Valid, and replace
 
-        # Find curent indices that are no longer Valid, and replace       
+        invalid_idxes = list(set(self.pane_to_idx).difference(active_set))
+        num_invalid = len(invalid_idxes)
+        before = self.pane_to_idx
+
+        if num_invalid == 0:
+            return
         
-        pass
+        new_idxes = random.sample(active_set, num_invalid)
+
+        panes = []
+        for ii, invalid_idx in enumerate(invalid_idxes):
+            pane = self.pane_to_idx.index(invalid_idx)
+            self.pane_to_idx[pane] = new_idxes[ii]
+            panes.append(pane)
+
+        self.update_from_idx(panes)
+
+        # print(time.time() - end)
+        print(_attr, _min, _max, len(active_set))    
+        
+    def on_click(self, idx):
+        im_idx = self.pane_to_idx[idx]
+        print('Clicked on ', self.image_names[im_idx])
 
 def main(args):
     qapp = QtWidgets.QApplication(sys.argv)
@@ -474,13 +548,12 @@ if __name__ == "__main__":
     # print(len(aa.active_sets))
     # print(aa.min_vals)
     # print(aa.max_vals)
-    # aa.filter('num_windows', 4, 10)
+    # aa.filter('shop', 0.1, 1)
+    # aa.filter('num_windows', 4, 15)
     # print(len(aa.total_active_set))
-    # for ii in range(10):
+    # num_to_show = min(10, len(aa.total_active_set))
+    # for ii in range(num_to_show):
     #     print(df.loc[list(aa.total_active_set)[ii], 'name'])
 
     # print(aa.df.loc[])
-
-
-        # self.min_vals = 
     main(args)
