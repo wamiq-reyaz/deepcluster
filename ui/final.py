@@ -5,14 +5,24 @@ from os.path import join as pjoin
 import time
 import random
 
+
 import faiss
+import models
 import numpy as np
 from glob import glob
-# from PIL import Image
 import pandas as pd
+
+import torch 
+import torch.nn as nn
+import torch.backends.cudnn as cudnn
+from torchvision import transforms
+from torchvision.transforms import Compose
 
 
 from matplotlib.backends.qt_compat import QtGui, QtCore, QtWidgets
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.figure import Figure
 
 QPixmap = QtGui.QPixmap
 QBrush = QtGui.QBrush
@@ -32,6 +42,7 @@ QGraphicsWidget  = QtWidgets.QGraphicsWidget
 QGridLayout = QtWidgets.QGridLayout
 QGraphicsPixmapItem= QtWidgets.QGraphicsPixmapItem
 
+from PIL import Image
 from PIL.ImageQt import ImageQt
 
 from matplotlib.patches import Polygon
@@ -48,6 +59,12 @@ parser = argparse.ArgumentParser(description='UI for large scale data-guided ass
 parser.add_argument('--img_dir', help='The path to the actual dataset')
 parser.add_argument('--csv', help='CSV containing the Properties of the dataset')
 parser.add_argument('--fcsv', help='CSV containing the Features of the dataset')
+parser.add_argument('--pca', help='npz containing the pca of the dataset')
+parser.add_argument('--mean', help='npz containing the mean of the dataset')
+
+parser.add_argument('--csv_win', help='CSV containing the Properties of the windows')
+parser.add_argument('--fcsv_win', help='CSV containing the Features of the windows')
+parser.add_argument('--pca_win', help='npz containing the pca of the dataset')
 parser.add_argument('--debug', action='store_true', default=False,
                     help='Turn on the debug mode (default: False)')
 parser.add_argument('--weights', default=None,
@@ -81,6 +98,14 @@ def pixmap_from_name(name):
         pixmap.detach()
         return pixmap
 
+def _is_img_file(name):
+        valid_ext = ['.png', '.jpeg', '.jpg', '.bmp', '.tiff']
+        _ext = os.path.splitext(name)[1]
+
+        if _ext in valid_ext:
+            return True
+        else:
+            return False
 ######################################################################
 
 class ImagePane(QGraphicsWidget):
@@ -94,6 +119,7 @@ class ImagePane(QGraphicsWidget):
 
         self._first_image_set = False
         self.size = 300
+        self.imsize = self.size - 5
 
         self.pixmap.setOpacity(self.inactive_opacity)
         self.setAcceptHoverEvents(True)
@@ -109,18 +135,21 @@ class ImagePane(QGraphicsWidget):
         self.update()
 
     def set_image(self, image):
-        self.pixmap.setPixmap(image.scaled(QSize(self.size, self.size)))
+        self.pixmap.setPixmap(image.scaled(QSize(self.imsize, self.imsize), 0)) 
         self.pixmap.setOpacity(self.inactive_opacity)
         self.update()
 
     def sizeHint(self, which, constraint=QSizeF()):
-        return  QSizeF(self.size, self.size) #self.pixmap.boundingRect().size()
+        return   QSizeF(self.imsize, self.imsize) # self.pixmap.boundingRect().size()#
 
     def boundingRect(self):
         return QRectF(0, 0,self.size,self.size)
     
     def mousePressEvent(self, event):
         self.clicked.emit(self.idx)
+
+    # def resizeEvent(self, event):
+    #     print(event.newSize())
 
 class ImageGrid(QGraphicsWidget):
     def __init__(self,
@@ -131,23 +160,22 @@ class ImageGrid(QGraphicsWidget):
         self.num_panes = size[0]*size[1]
         self.nrows = size[0]
         self.ncols = size[1]
+        print('From image_grid, ', self.nrows, self.ncols)
 
         layout = QGraphicsGridLayout()
         self.panes = {ii:ImagePane(self, idx=ii) for ii in range(self.num_panes)}
 
         for ii in range(self.num_panes):
-            grid = self._linear2grid(ii)
-            row = grid[0]
-            col = grid[1]
+            row, col = self._linear2grid(ii)
 
-            # print(self.panes[ii], row, col)
+            print(ii, row, col)
             layout.addItem(self.panes[ii], row, col)
 
         self.setLayout(layout)
 
     def _linear2grid(self, idx):
-        row = idx//self.ncols
-        col = idx%self.nrows
+        row = idx // self.ncols
+        col = idx % self.ncols
 
         return (row, col)
 
@@ -205,6 +233,118 @@ class ImageViewer(QtWidgets.QGraphicsView):
     def set_image(self, idxes, images):
         self.image_grid.set_image(idxes, images)
 
+class QFileDialogPreview(QtWidgets.QFileDialog):
+    def __init__(self, parent=None, **kwargs):
+        super(QFileDialogPreview, self).__init__(parent=parent, **kwargs)
+        self.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, True)
+
+        # box = QtWidgets.QVBoxLayout(self)
+
+        # self.setFixedSize(self.width() + 250, self.height())
+
+        self.mpPreview = QtWidgets.QLabel(self)
+        self.mpPreview.setFixedSize(600, 600)
+        self.mpPreview.setAlignment(QtCore.Qt.AlignCenter)
+        self.mpPreview.setObjectName("labelPreview")
+        # box.addWidget(self.mpPreview)
+
+        # box.addStretch()
+
+        self.layout().addWidget(self.mpPreview, 1, 3, 1, 1)
+
+        self.directoryEntered.connect(self.dir)
+        self.currentChanged.connect(self.onChange)
+        self.fileSelected.connect(self.onFileSelected)
+        self.filesSelected.connect(self.onFilesSelected)
+
+        self._fileSelected = None
+        self._filesSelected = None
+
+    def dir(self, dir):
+        print('asfaf')
+
+    def onChange(self, path):
+        print('asfafd')
+        pixmap = QtWidgets.QPixmap(path)
+        if(pixmap.isNull()):
+            self.mpPreview.setText("Preview")
+        else:
+            self.mpPreview.setPixmap(pixmap.scaled(self.mpPreview.width(), self.mpPreview.height()))
+
+    def onFileSelected(self, file):
+        print(file)
+        self._fileSelected = file
+
+    def onFilesSelected(self, files):
+        print(files)
+        self._filesSelected = files
+
+    # def getFileSelected(self):
+    #     return self._fileSelected
+
+    # def getFilesSelected(self):
+    #     return self._filesSelected
+
+class kNN(object):
+    def __init__(self,
+                 feat=None,
+                 dim=4096):
+        self.dim = dim
+        self.index = faiss.IndexFlatL2(dim)
+        self.index.add(feat)
+
+    def nearest(self, feat, num=50):
+        # print('Features', feat)
+        # assert feat.squeeze().shape == (self.dim,)
+        feat = np.ascontiguousarray(feat.reshape(1, -1).astype(np.float32))
+        # print(self.index.d, feat.shape)
+        return self.index.search(feat, num)
+
+class FeatureExtractor(object):
+    def __init__(self,
+                arch='vgg16',
+                weights=None,
+                gpus=[0]):
+        self.arch = arch
+        self.gpus = gpus
+        self.weights = weights
+
+        self.model = models.__dict__[arch](sobel=True)
+        self.model.top_layer = None
+        self.model.features = torch.nn.DataParallel(self.model.features)
+        self.model = self.model.cuda()
+        cudnn.benchmark = True
+
+        self._load_weights()
+
+        self.model.top_layer = None
+        self.model.classifier = nn.Sequential(*list(self.model.classifier.children())[:-1])
+
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+
+        self.transform = Compose([transforms.Resize(256),
+                                transforms.CenterCrop(224),
+                                transforms.ToTensor(),
+                                normalize])
+
+    def extract(self,
+                img=None):
+        _img_tensor = self.transform(img).cuda().unsqueeze(dim=0)
+        self.model.eval()
+        with torch.no_grad():
+            _feat = self.model(_img_tensor).data.cpu().numpy()
+        return _feat
+
+    def _load_weights(self):
+        if os.path.isfile(self.weights):
+            print("=> loading checkpoint '{}'".format(self.weights))
+            checkpoint = torch.load(self.weights)
+            self.model.load_state_dict(checkpoint['state_dict'])
+            print("=> loaded checkpoint")
+        else:
+            print("=> no checkpoint found at '{}'".format(self.weights))
+
 class FilterDataFrame(object):
     def __init__(self,
                  df=None):
@@ -250,12 +390,12 @@ class FacApp(QtWidgets.QMainWindow):
 
         self.text_resolution_h = 'Resolution H'
         self.text_resolution_v = 'Resolution V'
-        self.text_num_floors = '#Floors'
+        self.text_num_floors = 'Number of Floors'
         self.text_height = 'Height'
-        self.text_occlusion = 'Occlusion%'
-        self.text_blur = 'Blur'
+        self.text_occlusion = 'Occlusion'
+        self.text_blur = 'Sharpness'
         self.text_viewing_angle = 'Viewing Angle'
-        self.text_number_windows = '#Windows'
+        self.text_number_windows = 'Number of Windows'
         self.text_aspect_ratio = 'Aspect Ratio'
         
         self.slider_to_attr = {self.text_resolution_h: 'height',
@@ -281,24 +421,43 @@ class FacApp(QtWidgets.QMainWindow):
         if args is not None:
             print('Loading Images...')
             self.img_dir = args.img_dir
-            print('Loaded Properties...')
+            # print('Loaded Properties...')
             self.prop_df = pd.read_csv(args.csv)
             self.filter = FilterDataFrame(self.prop_df)
+            self.active_set = self.filter.get_active_set()
+
             self.image_names = self.prop_df['name']
             self.num_images = len(self.image_names)
             print('Loaded Properties')
 
             print('Loading Features...')
-            self.feat_df = pd.read_csv(args.fcsv, memory_map=True)
-            print('Loaded Features')
+            self.feat_df = pd.read_csv(args.fcsv)
+            if 'Unnamed: 0' in self.feat_df.columns:
+                del self.feat_df['Unnamed: 0']
+            if 'name' in self.feat_df.columns:
+                del self.feat_df['name']
+            print('Feature shape', self.feat_df.shape)
 
+            self.pca = np.load(args.pca)['arr_0']
+            self.mean = np.load(args.mean)['arr_0']
+
+            print('Loaded Features')
+            self.feat_dim = self.feat_df.shape[1]
             assert self.feat_df.shape[0] == self.prop_df.shape[0]
 
-            print('property columns', self.prop_df.columns)
+            print('Property Columns', self.prop_df.columns)
             print('Loaded {} images '.format(self.num_images))
 
+            ######## Attach Model to the app #################
 
-        ######## Attach Model to the app #################
+            print('Setting up CNN and search...')
+            feat = self.feat_df.values.astype(np.float32)
+            feat_contig = np.ascontiguousarray(self.feat_df.values.astype(np.float32))
+            self.fac_knn = kNN(feat_contig, dim=self.feat_dim)
+
+            print('Search set up')
+            self.fac_extractor = FeatureExtractor(weights=args.weights)
+            print('CNN set up')
 
         ####### Set up the GUI ##################
         self.setWindowTitle('DeFeat GAX')
@@ -331,50 +490,27 @@ class FacApp(QtWidgets.QMainWindow):
 
         ## The Hover pane
         self.hover_pane_layout = QtWidgets.QVBoxLayout(self.hover_pane)
-        self.hover_pane_layout.addWidget(QtWidgets.QWidget())
+        self.figure = Figure()
+
+        # this is the Canvas Widget that displays the `figure`
+        # it takes the `figure` instance as a parameter to __init__
+        self.canvas = FigureCanvas(self.figure)
+        self.canvas.setContentsMargins(0,0,0,0)
+
+        # this is the Navigation widget
+        # it takes the Canvas widget and a parent
+        self.toolbar = NavigationToolbar(self.canvas, self)
 
 
-        ## The home for all the sliders
-        self.slider_pane_layout = QtWidgets.QVBoxLayout(self.slider_pane)
-        self.slider1 =  MinMax(self.slider_pane)
-        self.slider1.set_name(self.text_resolution_h)
-        self.slider_pane_layout.addWidget(self.slider1)
+        self.hover_pane_layout.addWidget(self.canvas)
 
-        self.slider2 =  MinMax(self.slider_pane)
-        self.slider2.set_name(self.text_resolution_v)
-        self.slider_pane_layout.addWidget(self.slider2)
-
-        self.slider3 =  MinMax(self.slider_pane)
-        self.slider3.set_name(self.text_num_floors)
-        self.slider_pane_layout.addWidget(self.slider3)
-
-        self.slider4 =  MinMax(self.slider_pane)
-        self.slider4.set_name(self.text_height)
-        self.slider_pane_layout.addWidget(self.slider4)
-
-        self.slider5 =  MinMax(self.slider_pane)
-        self.slider5.set_name(self.text_occlusion)
-        self.slider_pane_layout.addWidget(self.slider5)
-
-        self.slider6 =  MinMax(self.slider_pane)
-        self.slider6.set_name(self.text_blur)
-        self.slider_pane_layout.addWidget(self.slider6)
-
-        self.slider7 =  MinMax(self.slider_pane)
-        self.slider7.set_name(self.text_viewing_angle)
-        self.slider_pane_layout.addWidget(self.slider7)
-
-        self.slider8 =  MinMax(self.slider_pane)
-        self.slider8.set_name(self.text_number_windows)
-        self.slider_pane_layout.addWidget(self.slider8)
-
-        self.slider9 =  MinMax(self.slider_pane)
-        self.slider9.set_name(self.text_aspect_ratio)
-        self.slider_pane_layout.addWidget(self.slider9)
-
-        # self.slider10 =  MinMax(self.slider_pane)
-        # self.slider10.set_name(self.text_aspect_ratio)
-        # self.slider_pane_layout.addWidget(self.slider10)
+        # self.slider_widget_to_attr = {'slider1': 'height',
+        #                               'slider2': 'width',
+        #                               'slider3': 'aspect_ratio',
+        #                               'slider4': 'noblur',
+        #                               'slider5': 'view_angle',
+        #                               'slider6': 'normalized_x',
+        #                               'slider7': 'normalized_y',}
 
         self.slider_widget_to_attr = {'slider1': 'height',
                                       'slider2': 'width',
@@ -386,7 +522,55 @@ class FacApp(QtWidgets.QMainWindow):
                                       'slider8': 'num_windows',
                                       'slider9': 'aspect_ratio',}
 
-        self.connect_sliders(9)
+        ## The home for all the sliders
+        self.slider_pane_layout = QtWidgets.QVBoxLayout(self.slider_pane)
+        self.slider1 =  MinMax(self.slider_pane)
+        self.slider1.set_name(self.text_resolution_h)
+        # self.slider_pane_layout.addWidget(self.slider1)
+
+        self.slider2 =  MinMax(self.slider_pane)
+        self.slider2.set_name(self.text_resolution_v)
+        # self.slider_pane_layout.addWidget(self.slider2)
+# 
+        self.slider3 =  MinMax(self.slider_pane)
+        self.slider3.set_name(self.text_num_floors)
+        # self.slider_pane_layout.addWidget(self.slider3)
+
+        self.slider4 =  MinMax(self.slider_pane)
+        self.slider4.set_name(self.text_height)
+        # self.slider_pane_layout.addWidget(self.slider4)
+
+        self.slider5 =  MinMax(self.slider_pane)
+        self.slider5.set_name(self.text_occlusion)
+        # self.slider_pane_layout.addWidget(self.slider5)
+
+        self.slider6 =  MinMax(self.slider_pane)
+        self.slider6.set_name(self.text_blur)
+        # self.slider_pane_layout.addWidget(self.slider6)
+
+        self.slider7 =  MinMax(self.slider_pane)
+        self.slider7.set_name(self.text_viewing_angle)
+        # self.slider_pane_layout.addWidget(self.slider7)
+
+        self.slider8 =  MinMax(self.slider_pane)
+        self.slider8.set_name(self.text_number_windows)
+        # self.slider_pane_layout.addWidget(self.slider8)
+
+        self.slider9 =  MinMax(self.slider_pane)
+        self.slider9.set_name(self.text_aspect_ratio)
+        # self.slider_pane_layout.addWidget(self.slider9)
+
+        # self.slider10 =  MinMax(self.slider_pane)
+        # self.slider10.set_name(self.text_aspect_ratio)
+        # self.slider_pane_layout.addWidget(self.slider10)
+
+    
+        for ii in range(len(self.slider_widget_to_attr)):
+            slider_string = 'slider' + str(ii+1)
+            curr_slider = getattr(self, slider_string)
+            self.slider_pane_layout.addWidget(curr_slider)
+
+        self.connect_sliders(len(self.slider_widget_to_attr))
 
         ## Set up the buttons in the search pane
         self.search_pane_layout = QtWidgets.QVBoxLayout(self.search_pane)
@@ -427,6 +611,7 @@ class FacApp(QtWidgets.QMainWindow):
                                'radioButton_city', 'toolButton_load_image',
                                'toolButton_search_image']
         self.magnify_font(elements_to_magnify)
+        self.plot()
 
 
     def create_image(self, idx):
@@ -443,12 +628,14 @@ class FacApp(QtWidgets.QMainWindow):
         for _, pane in self.image_viewer.image_grid.panes.items():
             pane.clicked.connect(self.on_click)
 
+
     def connect_sliders(self, num_sliders):
         for ii in range(num_sliders):
             slider_string = 'slider' + str(ii+1)
             curr_slider = getattr(self, slider_string)
 
             _attr = self.slider_widget_to_attr[slider_string]
+            print(_attr)
             _min = self.filter.min_vals[_attr]
             _max = self.filter.max_vals[_attr]
 
@@ -477,18 +664,65 @@ class FacApp(QtWidgets.QMainWindow):
         self.image_viewer.set_image(idxes, images)
         print('Time to update screen: {:.4f}'.format(time.time() - end))
 
-
     def search(self):
-        file = QtWidgets.QFileDialog.getOpenFileName(self, 'Choose a file')
+        d = QFileDialogPreview(self)
+        file = d.getOpenFileName(self, 'Choose a file')
+
+        # file = QtWidgets.QFileDialog.getOpenFileName(self, 'Choose a file')
+
+        # if file.
         # detect which switch is on
+        _is_active = False
+        for ii, _attr in enumerate([ 'radioButton_facade','radioButton_window']):
+            button = getattr(self, _attr)
+            if button.isChecked():
+                active_button = ii
+                _is_active = True
+                break
+
+        fname = file[0]
+        if not _is_active or not _is_img_file(fname):
+            return
 
         # compute the features
+        try:
+            _img = Image.open(fname)
+        except:
+            print('Failed to open Image {}'.format(fname))
+            return
+
+        feat = self.fac_extractor.extract(_img)
+        feat = np.ascontiguousarray(feat.astype(np.float32))
+        
+        feat = self.pca @ (feat - self.mean).reshape(-1, 1) # matrix multiplication
+        print(file, active_button)
+        print(self.feat_df.shape)
 
         # perform the lookup in the appropriate space (facade/windows)
 
+        d, idxes = self.fac_knn.nearest(feat)
+        idxes = list(idxes.ravel())
+    
+
         # update the display
-        #TODO
-        pass
+        valid_idx = set(idxes).intersection(self.active_set)
+
+        counter = 0
+        print(d.shape)
+        for ii, idx in enumerate(idxes):
+            if counter >= self.n_subplots:
+                break
+            if idx in valid_idx:
+                self.pane_to_idx[counter] = idx
+                print(d[0, ii])
+                counter += 1
+        # for ii, idx in enumerate(valid_idx):
+        #     if ii >= self.n_subplots:
+        #         break
+        #     self.pane_to_idx[ii] = idx
+
+        self.update_from_idx(list(range(self.n_subplots)))
+        return
 
     def on_slider_change(self, name, _min, _max):
         # We have sets of individual indices filtered
@@ -499,19 +733,20 @@ class FacApp(QtWidgets.QMainWindow):
             raise ValueError('Invalid Atribute to filter')
         # perform a lookup in the DataFrame
         self.filter.filter(_attr, _min, _max)
-        # Find the new indices for the changed attribute
-        active_set = self.filter.get_active_set()
+        self.active_set = self.filter.get_active_set()
 
+        # Find the new indices for the changed attribute
         # Find curent indices that are no longer Valid, and replace
 
-        invalid_idxes = list(set(self.pane_to_idx).difference(active_set))
+        invalid_idxes = list(set(self.pane_to_idx).difference(self.active_set))
         num_invalid = len(invalid_idxes)
         before = self.pane_to_idx
 
         if num_invalid == 0:
+            print(_attr, _min, _max, len(self.active_set))  
             return
         
-        new_idxes = random.sample(active_set, num_invalid)
+        new_idxes = random.sample(self.active_set, num_invalid)
 
         panes = []
         for ii, invalid_idx in enumerate(invalid_idxes):
@@ -522,11 +757,29 @@ class FacApp(QtWidgets.QMainWindow):
         self.update_from_idx(panes)
 
         # print(time.time() - end)
-        print(_attr, _min, _max, len(active_set))    
+        print(_attr, _min, _max, len(self.active_set))    
         
     def on_click(self, idx):
         im_idx = self.pane_to_idx[idx]
-        print('Clicked on ', self.image_names[im_idx])
+        print('Clicked on ', self.image_names[im_idx], im_idx)
+
+    def plot(self):
+        ''' plot some random stuff '''
+        # random data
+        data = np.random.rand(400, 2)#[random.random() for i in range(10)]
+
+        # create an axis
+        ax = self.figure.add_subplot(111)
+        self.figure.tight_layout()
+
+        # discards the old graph
+        ax.clear()
+
+        # plot data
+        ax.scatter(data[:, 0], data[:, 1])
+
+        # refresh canvas
+        self.canvas.draw()
 
 def main(args):
     qapp = QtWidgets.QApplication(sys.argv)

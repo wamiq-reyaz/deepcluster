@@ -63,8 +63,8 @@ class Ui_Form(object):
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.min_text.sizePolicy().hasHeightForWidth())
         self.min_text.setSizePolicy(sizePolicy)
-        self.min_text.setMinimumSize(QtCore.QSize(50, 50))
-        self.min_text.setMaximumSize(QtCore.QSize(50, 50))
+        self.min_text.setMinimumSize(QtCore.QSize(100, 50))
+        self.min_text.setMaximumSize(QtCore.QSize(100, 50))
         self.min_text.setLayoutDirection(QtCore.Qt.LeftToRight)
         self.min_text.setAlignment(QtCore.Qt.AlignCenter)
         self.min_text.setObjectName("min_text")
@@ -81,7 +81,7 @@ class Ui_Form(object):
         self.min_slider.setSizePolicy(sizePolicy)
         self.min_slider.setMinimumSize(QtCore.QSize(300, 50))
         self.min_slider.setMaximumSize(QtCore.QSize(500, 50))
-        self.min_slider.setMouseTracking(True)
+        self.min_slider.setMouseTracking(False)
         self.min_slider.setOrientation(QtCore.Qt.Horizontal)
         self.min_slider.setTickPosition(QtWidgets.QSlider.TicksBothSides)
         self.min_slider.setTickInterval(5)
@@ -95,7 +95,7 @@ class Ui_Form(object):
         self.max_slider.setSizePolicy(sizePolicy)
         self.max_slider.setMinimumSize(QtCore.QSize(300, 50))
         self.max_slider.setMaximumSize(QtCore.QSize(500, 50))
-        self.max_slider.setMouseTracking(True)
+        self.max_slider.setMouseTracking(False)
         self.max_slider.setLayoutDirection(QtCore.Qt.LeftToRight)
         self.max_slider.setMaximum(100)
         self.max_slider.setSliderPosition(100)
@@ -134,10 +134,10 @@ class Ui_Form(object):
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.max_text.sizePolicy().hasHeightForWidth())
         self.max_text.setSizePolicy(sizePolicy)
-        self.max_text.setMinimumSize(QtCore.QSize(50, 50))
-        self.max_text.setMaximumSize(QtCore.QSize(50, 50))
+        self.max_text.setMinimumSize(QtCore.QSize(100, 50))
+        self.max_text.setMaximumSize(QtCore.QSize(100, 50))
         self.max_text.setLayoutDirection(QtCore.Qt.LeftToRight)
-        self.max_text.setAlignment(QtCore.Qt.AlignJustify)
+        self.max_text.setAlignment(QtCore.Qt.AlignCenter)
         self.max_text.setObjectName("max_text")
         self.horizontalLayout_28.addWidget(self.max_text, 0, QtCore.Qt.AlignHCenter|QtCore.Qt.AlignVCenter)
         self.verticalLayout_12.addLayout(self.horizontalLayout_28)
@@ -146,6 +146,16 @@ class Ui_Form(object):
         self.retranslateUi(Form)
         QtCore.QMetaObject.connectSlotsByName(Form)
 
+        elements_to_magnify = ['min_text', 'max_text']
+        self.magnify_font(elements_to_magnify)
+
+
+    def magnify_font(self, elements):
+        for e in elements:
+            curr_elem = getattr(self, e)
+            curr_elem.setFontPointSize(13)
+
+    
     def retranslateUi(self, Form):
         _translate = QtCore.QCoreApplication.translate
         Form.setWindowTitle(_translate("Form", "Form"))
