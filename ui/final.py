@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torchvision import transforms
 from torchvision.transforms import Compose
-
+import json
 
 from matplotlib.backends.qt_compat import QtGui, QtCore, QtWidgets
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -61,6 +61,9 @@ parser.add_argument('--csv', help='CSV containing the Properties of the dataset'
 parser.add_argument('--fcsv', help='CSV containing the Features of the dataset')
 parser.add_argument('--pca', help='npz containing the pca of the dataset')
 parser.add_argument('--mean', help='npz containing the mean of the dataset')
+parser.add_argument('--win', action='store_true', default=False,
+                    help='Turn on the window mode (default: False)')
+
 
 parser.add_argument('--csv_win', help='CSV containing the Properties of the windows')
 parser.add_argument('--fcsv_win', help='CSV containing the Features of the windows')
@@ -113,6 +116,7 @@ class ImagePane(QGraphicsWidget):
     def __init__(self, parent=None, idx=None):
         super(ImagePane, self).__init__(parent=parent)
         self.idx = idx
+        self.img = None
         self.pixmap = QGraphicsPixmapItem(self)
         self.active_opacity = 1.0
         self.inactive_opacity = 0.8
@@ -121,23 +125,45 @@ class ImagePane(QGraphicsWidget):
         self.size = 300
         self.imsize = self.size - 5
 
+        self.is_orig_aspect = False
+
         self.pixmap.setOpacity(self.inactive_opacity)
         self.setAcceptHoverEvents(True)
 
+    def show_original_aspect(self, temporary=False):
+        if not temporary:
+            self.is_orig_aspect = True
+        img = self.img.scaled(QSize(self.imsize, self.imsize), 1)
+        h, w = img.height(), img.width()
+        left, top  = self._getTranslate(h, w)
+        self.pixmap.setOffset(left, top)
+        self.pixmap.setPixmap(img)
+        self.update()
+
+    def show_scaled_aspect(self):
+        self.is_orig_aspect = False
+        self.pixmap.setOffset(0, 0)
+        self.pixmap.setPixmap(self.img.scaled(QSize(self.imsize, self.imsize), 0))
+        self.update()
+
+
     def hoverEnterEvent(self, event):
-        # print('Entered pane', self.rect())
+        self.show_original_aspect(temporary=True)        
         self.pixmap.setOpacity(self.active_opacity)
         self.update()
         
     def hoverLeaveEvent(self, event):
-        # print('left pane', self.rect())
+        if not self.is_orig_aspect:
+            self.show_scaled_aspect()
         self.pixmap.setOpacity(self.inactive_opacity)
         self.update()
 
     def set_image(self, image):
-        self.pixmap.setPixmap(image.scaled(QSize(self.imsize, self.imsize), 0)) 
-        self.pixmap.setOpacity(self.inactive_opacity)
-        self.update()
+        self.img = image
+        if self.is_orig_aspect:
+            self.show_original_aspect()
+        else:
+            self.show_scaled_aspect()
 
     def sizeHint(self, which, constraint=QSizeF()):
         return   QSizeF(self.imsize, self.imsize) # self.pixmap.boundingRect().size()#
@@ -148,8 +174,15 @@ class ImagePane(QGraphicsWidget):
     def mousePressEvent(self, event):
         self.clicked.emit(self.idx)
 
-    # def resizeEvent(self, event):
-    #     print(event.newSize())
+    def _getTranslate(self, h, w):
+        total_horiz = self.imsize - w
+        right = total_horiz // 2
+
+        total_vert = self.imsize - h
+        top = total_vert // 2
+
+        return right, top
+
 
 class ImageGrid(QGraphicsWidget):
     def __init__(self,
@@ -210,7 +243,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         self.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(30, 30, 30))) #define dark gray background color
-        self.setFrameShape(QtWidgets.QFrame.NoFrame)
+        # self.setFrameShape(QtWidgets.QFrame.NoFrame)
 
 
     def resizeEvent(self, event):
@@ -234,23 +267,23 @@ class ImageViewer(QtWidgets.QGraphicsView):
         self.image_grid.set_image(idxes, images)
 
 class QFileDialogPreview(QtWidgets.QFileDialog):
-    def __init__(self, parent=None, **kwargs):
-        super(QFileDialogPreview, self).__init__(parent=parent, **kwargs)
+    def __init__(self, parent=None, *args, **kwargs):
+        super(QFileDialogPreview, self).__init__(parent=parent, *args, **kwargs)
         self.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, True)
 
-        # box = QtWidgets.QVBoxLayout(self)
-
-        # self.setFixedSize(self.width() + 250, self.height())
+        box = QtWidgets.QVBoxLayout()
+        self.setFixedSize(self.width() + 250, self.height())
 
         self.mpPreview = QtWidgets.QLabel(self)
         self.mpPreview.setFixedSize(600, 600)
         self.mpPreview.setAlignment(QtCore.Qt.AlignCenter)
         self.mpPreview.setObjectName("labelPreview")
-        # box.addWidget(self.mpPreview)
+        box.addWidget(self.mpPreview)
 
-        # box.addStretch()
+        box.addStretch()
 
-        self.layout().addWidget(self.mpPreview, 1, 3, 1, 1)
+        print(self.layout())
+        self.layout().addLayout(box, 3, 3, 1, 1)
 
         self.directoryEntered.connect(self.dir)
         self.currentChanged.connect(self.onChange)
@@ -279,11 +312,12 @@ class QFileDialogPreview(QtWidgets.QFileDialog):
         print(files)
         self._filesSelected = files
 
-    # def getFileSelected(self):
-    #     return self._fileSelected
+    def getFileSelected(self):
+        print(self._fileSelected)
+        return self._fileSelected
 
-    # def getFilesSelected(self):
-    #     return self._filesSelected
+    def getFilesSelected(self):
+        return self._filesSelected
 
 class kNN(object):
     def __init__(self,
@@ -293,7 +327,7 @@ class kNN(object):
         self.index = faiss.IndexFlatL2(dim)
         self.index.add(feat)
 
-    def nearest(self, feat, num=50):
+    def nearest(self, feat, num=300):
         # print('Features', feat)
         # assert feat.squeeze().shape == (self.dim,)
         feat = np.ascontiguousarray(feat.reshape(1, -1).astype(np.float32))
@@ -327,6 +361,9 @@ class FeatureExtractor(object):
                                 transforms.CenterCrop(224),
                                 transforms.ToTensor(),
                                 normalize])
+        self.embedding = np.load('balanced_200_normalize_old_feat.npz')['arr_0']
+        self.clusters = 
+
 
     def extract(self,
                 img=None):
@@ -397,17 +434,9 @@ class FacApp(QtWidgets.QMainWindow):
         self.text_viewing_angle = 'Viewing Angle'
         self.text_number_windows = 'Number of Windows'
         self.text_aspect_ratio = 'Aspect Ratio'
-        
-        self.slider_to_attr = {self.text_resolution_h: 'height',
-                               self.text_resolution_v: 'width',
-                               self.text_num_floors: 'floors',
-                               self.text_height: 'floors',
-                               self.text_occlusion: 'total_occlusion',
-                               self.text_blur: 'noblur',
-                               self.text_viewing_angle: 'view_angle',
-                               self.text_number_windows: 'num_windows',
-                               self.text_aspect_ratio: 'aspect_ratio'}
 
+        self.searches = dict()
+        
         self.pane_to_idx = []
 
         #PANTONE 3553 C
@@ -490,74 +519,95 @@ class FacApp(QtWidgets.QMainWindow):
 
         ## The Hover pane
         self.hover_pane_layout = QtWidgets.QVBoxLayout(self.hover_pane)
-        self.figure = Figure()
+        # self.figure = Figure()
 
         # this is the Canvas Widget that displays the `figure`
         # it takes the `figure` instance as a parameter to __init__
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setContentsMargins(0,0,0,0)
+        # self.canvas = FigureCanvas(self.figure)
+        # self.canvas.setContentsMargins(0,0,0,0)
 
         # this is the Navigation widget
         # it takes the Canvas widget and a parent
-        self.toolbar = NavigationToolbar(self.canvas, self)
+        # self.toolbar = NavigationToolbar(self.canvas, self)
 
 
-        self.hover_pane_layout.addWidget(self.canvas)
+        # self.hover_pane_layout.addWidget(self.canvas)
 
-        # self.slider_widget_to_attr = {'slider1': 'height',
-        #                               'slider2': 'width',
-        #                               'slider3': 'aspect_ratio',
-        #                               'slider4': 'noblur',
-        #                               'slider5': 'view_angle',
-        #                               'slider6': 'normalized_x',
-        #                               'slider7': 'normalized_y',}
+        if args.win:
+            self.slider_widget_to_attr = {'slider1': 'height',
+                                        'slider2': 'width',
+                                        'slider3': 'aspect_ratio',
+                                        'slider4': 'noblur',
+                                        'slider5': 'view_angle',
+                                        'slider6': 'normalized_x',
+                                        'slider7': 'normalized_y',}
 
-        self.slider_widget_to_attr = {'slider1': 'height',
-                                      'slider2': 'width',
-                                      'slider3': 'floors',
-                                      'slider4': 'floors',
-                                      'slider5': 'total_occlusion',
-                                      'slider6': 'noblur',
-                                      'slider7': 'view_angle',
-                                      'slider8': 'num_windows',
-                                      'slider9': 'aspect_ratio',}
+            self.slider_widget_to_text = {'slider1': 'Height',
+                                        'slider2': 'Width',
+                                        'slider3': 'Aspect Ratio',
+                                        'slider4': 'Sharpness',
+                                        'slider5': 'View Angle',
+                                        'slider6': 'Normalized X',
+                                        'slider7': 'Normalized Y',}
+
+        else:
+            self.slider_widget_to_attr = {'slider1': 'height',
+                                          'slider2': 'width',
+                                          'slider3': 'floors',
+                                          'slider4': 'floors',
+                                          'slider5': 'total_occlusion',
+                                          'slider6': 'noblur',
+                                          'slider7': 'view_angle',
+                                          'slider8': 'num_windows',
+                                          'slider9': 'aspect_ratio',}
+
+            self.slider_widget_to_text = {'slider1': 'Resolution H',
+                                        'slider2': 'Resolution V',
+                                        'slider3': 'Floors',
+                                        'slider4': 'Height',
+                                        'slider5': 'Total Occlusion',
+                                        'slider6': 'Sharpness',
+                                        'slider7': 'View Angle',
+                                        'slider8': 'Windows',
+                                        'slider9': 'Aspect Ratio'}
 
         ## The home for all the sliders
         self.slider_pane_layout = QtWidgets.QVBoxLayout(self.slider_pane)
         self.slider1 =  MinMax(self.slider_pane)
-        self.slider1.set_name(self.text_resolution_h)
+        # self.slider1.set_name(self.text_resolution_h)
         # self.slider_pane_layout.addWidget(self.slider1)
 
         self.slider2 =  MinMax(self.slider_pane)
-        self.slider2.set_name(self.text_resolution_v)
+        # self.slider2.set_name(self.text_resolution_v)
         # self.slider_pane_layout.addWidget(self.slider2)
 # 
         self.slider3 =  MinMax(self.slider_pane)
-        self.slider3.set_name(self.text_num_floors)
+        # self.slider3.set_name(self.text_num_floors)
         # self.slider_pane_layout.addWidget(self.slider3)
 
         self.slider4 =  MinMax(self.slider_pane)
-        self.slider4.set_name(self.text_height)
+        # self.slider4.set_name(self.text_height)
         # self.slider_pane_layout.addWidget(self.slider4)
 
         self.slider5 =  MinMax(self.slider_pane)
-        self.slider5.set_name(self.text_occlusion)
+        # self.slider5.set_name(self.text_occlusion)
         # self.slider_pane_layout.addWidget(self.slider5)
 
         self.slider6 =  MinMax(self.slider_pane)
-        self.slider6.set_name(self.text_blur)
+        # self.slider6.set_name(self.text_blur)
         # self.slider_pane_layout.addWidget(self.slider6)
 
         self.slider7 =  MinMax(self.slider_pane)
-        self.slider7.set_name(self.text_viewing_angle)
+        # self.slider7.set_name(self.text_viewing_angle)
         # self.slider_pane_layout.addWidget(self.slider7)
 
-        self.slider8 =  MinMax(self.slider_pane)
-        self.slider8.set_name(self.text_number_windows)
-        # self.slider_pane_layout.addWidget(self.slider8)
+        if not args.win:
+            self.slider8 =  MinMax(self.slider_pane)
+            # self.slider8.set_name(self.text_number_windows)
+            # self.slider_pane_layout.addWidget(self.slider8)
 
-        self.slider9 =  MinMax(self.slider_pane)
-        self.slider9.set_name(self.text_aspect_ratio)
+            self.slider9 =  MinMax(self.slider_pane)
+        # self.slider9.set_name(self.text_aspect_ratio)
         # self.slider_pane_layout.addWidget(self.slider9)
 
         # self.slider10 =  MinMax(self.slider_pane)
@@ -568,6 +618,8 @@ class FacApp(QtWidgets.QMainWindow):
         for ii in range(len(self.slider_widget_to_attr)):
             slider_string = 'slider' + str(ii+1)
             curr_slider = getattr(self, slider_string)
+            curr_slider.set_name(self.slider_widget_to_text[slider_string])
+            curr_slider.set_index(slider_string)
             self.slider_pane_layout.addWidget(curr_slider)
 
         self.connect_sliders(len(self.slider_widget_to_attr))
@@ -600,7 +652,7 @@ class FacApp(QtWidgets.QMainWindow):
         self.toolButton_load_image = QtWidgets.QToolButton(self.search_pane)
         self.toolButton_load_image.setGeometry(QtCore.QRect(0, 0, 730, 110))
         self.toolButton_load_image.setMinimumSize(QtCore.QSize(800, 50))
-        self.toolButton_load_image.setText('Load Image')
+        self.toolButton_load_image.setText('Resample')
         self.toolButton_load_image.clicked.connect(self.load_images)
 
         self.search_pane_layout.addWidget(self.horiz_widget)
@@ -611,8 +663,28 @@ class FacApp(QtWidgets.QMainWindow):
                                'radioButton_city', 'toolButton_load_image',
                                'toolButton_search_image']
         self.magnify_font(elements_to_magnify)
-        self.plot()
+        # self.plot()
 
+        # self.keyboardGrabber.connect(self.handle_keyboard)
+
+    def keyPressEvent(self, event):
+        print(event.key())
+        key = event.key()
+        if key == 65: #A
+            for ii, pane in self.image_viewer.image_grid.panes.items():
+                pane.show_original_aspect()
+        elif key == 70: #F
+            for ii, pane in self.image_viewer.image_grid.panes.items():
+                pane.show_scaled_aspect()
+        elif key == 78: # N
+            self.load_images()
+        elif key == 66:
+            self.resize(2413, 2100)
+            #
+            pass
+            # print('Saving JSON')
+            # with open('ucl_facade_search.json' , 'w') as fd:
+            #     json.dump(self.searches, fd, indent=4)
 
     def create_image(self, idx):
         pass
@@ -672,7 +744,7 @@ class FacApp(QtWidgets.QMainWindow):
 
         # if file.
         # detect which switch is on
-        _is_active = False
+        _is_active = None
         for ii, _attr in enumerate([ 'radioButton_facade','radioButton_window']):
             button = getattr(self, _attr)
             if button.isChecked():
@@ -702,7 +774,9 @@ class FacApp(QtWidgets.QMainWindow):
 
         d, idxes = self.fac_knn.nearest(feat)
         idxes = list(idxes.ravel())
-    
+
+        bname = os.path.basename(fname)
+        self.searches[bname] = [self.image_names[ii] for ii in idxes[:100]]
 
         # update the display
         valid_idx = set(idxes).intersection(self.active_set)
@@ -728,7 +802,7 @@ class FacApp(QtWidgets.QMainWindow):
         # We have sets of individual indices filtered
         # end = time.time()
         # figure out which filter changed
-        _attr = self.slider_to_attr[name]
+        _attr = self.slider_widget_to_attr[name]
         if not _attr in self.filter.numeric_cols:
             raise ValueError('Invalid Atribute to filter')
         # perform a lookup in the DataFrame

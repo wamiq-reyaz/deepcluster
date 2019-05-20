@@ -13,6 +13,7 @@ class MinMax(QtWidgets.QWidget):
         self.ui = Ui_Form()
         self.ui.setupUi(self)
         self.difference = 5
+        self.index = None
 
         self.actual_min = 0
         self.actual_max = 0
@@ -30,6 +31,9 @@ class MinMax(QtWidgets.QWidget):
     def set_name(self, name):
         self.ui.label.setText(name)
 
+    def set_index(self, index):
+        self.index = index
+
     def update_min(self):
         curr_min = self.ui.min_slider.value()
         curr_max = self.ui.max_slider.value()
@@ -40,7 +44,7 @@ class MinMax(QtWidgets.QWidget):
             self.ui.max_slider.blockSignals(False)
         self.update_text()
         _min, _max = self._value()
-        self.changed.emit(self.ui.label.text(), _min, _max )
+        self.changed.emit(self.index, _min, _max )
 
     def update_max(self):
         curr_min = self.ui.min_slider.value()
@@ -52,7 +56,7 @@ class MinMax(QtWidgets.QWidget):
             self.ui.min_slider.blockSignals(False)
         self.update_text()   
         _min, _max = self._value()
-        self.changed.emit(self.ui.label.text(), _min, _max)
+        self.changed.emit(self.index, _min, _max)
 
     def update_text(self):
         _min, _max = self._value()
