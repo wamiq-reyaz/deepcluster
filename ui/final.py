@@ -19,10 +19,12 @@ from torchvision import transforms
 from torchvision.transforms import Compose
 import json
 
+import matplotlib.pyplot as plt
 from matplotlib.backends.qt_compat import QtGui, QtCore, QtWidgets
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from natsort import natsorted
 
 QPixmap = QtGui.QPixmap
 QBrush = QtGui.QBrush
@@ -72,7 +74,43 @@ parser.add_argument('--debug', action='store_true', default=False,
                     help='Turn on the debug mode (default: False)')
 parser.add_argument('--weights', default=None,
                     help='The path to the model (default: None')
-
+def _get_parent(name):
+    if 'Austria' in name:
+        return 'Austria_Vienna'
+    elif 'Belgium' in name:
+        return 'Belgium_Brussels'
+    elif 'China' in name:
+        return 'China_HK'
+    elif 'Denmark' in name:
+        return 'Denmark_Copenhagen'
+    elif 'France_Paris' in name:
+        return 'France_Paris'
+    elif 'Germany' in name:
+        return 'Germany_Berlin'
+    elif 'Greece' in name:
+        return 'Greece_Athens'
+    elif 'Italy' in name:
+        return 'Italy_Rome'
+    elif 'Netherlands' in name:
+        return 'Netherlands_Amsterdam'
+    elif 'Romania' in name:
+        return 'Romania_Bucharest'
+    elif 'Switzerlan' in name:
+        return 'Switzerlan_Bern'
+    elif 'UK_Lon' in name:
+        return 'UK_London'
+    elif 'USA_Chi' in name:
+        return 'USA_Chicago'
+    elif 'USA_Dallas' in name:
+        return 'USA_Dallas'
+    elif 'USA_Hawaii' in name:
+        return 'USA_Hawaii'
+    elif 'USA_Los' in name:
+        return 'USA_LosAngeles'
+    elif 'USA_New' in name:
+        return 'USA_NewYork'
+    else:
+        raise ValueError("What the fuck have you done wrong")
 
 
 ######################################################################
@@ -122,7 +160,7 @@ class ImagePane(QGraphicsWidget):
         self.inactive_opacity = 0.8
 
         self._first_image_set = False
-        self.size = 300
+        self.size = 100
         self.imsize = self.size - 5
 
         self.is_orig_aspect = False
@@ -361,9 +399,6 @@ class FeatureExtractor(object):
                                 transforms.CenterCrop(224),
                                 transforms.ToTensor(),
                                 normalize])
-        self.embedding = np.load('balanced_200_normalize_old_feat.npz')['arr_0']
-        self.clusters = 
-
 
     def extract(self,
                 img=None):
@@ -418,8 +453,8 @@ class FacApp(QtWidgets.QMainWindow):
         super(FacApp, self).__init__(parent)
         
         ## Layout and aesthetics
-        self.ncols = 4
-        self.nrows = 4
+        self.ncols = 8
+        self.nrows = 8
         self.n_subplots = self.ncols * self.nrows
         self.eps = 0.01
         self.weps = 0.01
@@ -488,6 +523,20 @@ class FacApp(QtWidgets.QMainWindow):
             self.fac_extractor = FeatureExtractor(weights=args.weights)
             print('CNN set up')
 
+        self.embedding = np.load('win_148epoch_200dim_2dim_b.npz')['arr_0']
+
+        names = [_get_parent(name) for name in self.image_names]
+        names_to_class = {ii:o for ii, o in enumerate(names)}
+        names_to_class[10] = 'Switzerlan'
+        unique_names = pd.Series(names).unique()
+        name_to_class = {name:ii for ii, name in enumerate(natsorted(unique_names))}
+        target = [name_to_class[name] for name in names]
+        self.indices = [ii for ii, l in enumerate(target) if l== 0]
+        self.embedding = self.embedding[self.indices, :]
+        
+        self.target = np.load('austria_20_clusters.npz')['arr_0']
+        # target = [name_to_class[name] for name in names]
+
         ####### Set up the GUI ##################
         self.setWindowTitle('DeFeat GAX')
         self.centralwidget = QWidget()
@@ -519,19 +568,19 @@ class FacApp(QtWidgets.QMainWindow):
 
         ## The Hover pane
         self.hover_pane_layout = QtWidgets.QVBoxLayout(self.hover_pane)
-        # self.figure = Figure()
+        self.figure = Figure()
 
         # this is the Canvas Widget that displays the `figure`
         # it takes the `figure` instance as a parameter to __init__
-        # self.canvas = FigureCanvas(self.figure)
-        # self.canvas.setContentsMargins(0,0,0,0)
+        self.canvas = FigureCanvas(self.figure)
+        self.canvas.setContentsMargins(0,0,0,0)
 
         # this is the Navigation widget
         # it takes the Canvas widget and a parent
-        # self.toolbar = NavigationToolbar(self.canvas, self)
+        self.toolbar = NavigationToolbar(self.canvas, self)
 
 
-        # self.hover_pane_layout.addWidget(self.canvas)
+        self.hover_pane_layout.addWidget(self.canvas)
 
         if args.win:
             self.slider_widget_to_attr = {'slider1': 'height',
@@ -626,8 +675,14 @@ class FacApp(QtWidgets.QMainWindow):
 
         ## Set up the buttons in the search pane
         self.search_pane_layout = QtWidgets.QVBoxLayout(self.search_pane)
-        self.horiz_widget = QtWidgets.QWidget(self.search_pane)
 
+        # self.infobox = QtWidgets.QTableWidget(self.search_pane)
+        # self.infobox.setGeometry(QtCore.QRect(0, 0, 50, 50))
+        # self.infobox.setMinimumSize(QtCore.QSize(50, 50))
+        # self.search_pane_layout.addWidget(self.infobox)
+
+
+        self.horiz_widget = QtWidgets.QWidget(self.search_pane)
         self.horiz_widget_layout = QtWidgets.QHBoxLayout(self.horiz_widget)
         self.horiz_widget_layout.setGeometry(QtCore.QRect(0, 0, 500, 50))
 
@@ -663,7 +718,9 @@ class FacApp(QtWidgets.QMainWindow):
                                'radioButton_city', 'toolButton_load_image',
                                'toolButton_search_image']
         self.magnify_font(elements_to_magnify)
-        # self.plot()
+        self.plot()
+
+        self.curr_cluster = 0
 
         # self.keyboardGrabber.connect(self.handle_keyboard)
 
@@ -674,10 +731,11 @@ class FacApp(QtWidgets.QMainWindow):
             for ii, pane in self.image_viewer.image_grid.panes.items():
                 pane.show_original_aspect()
         elif key == 70: #F
-            for ii, pane in self.image_viewer.image_grid.panes.items():
-                pane.show_scaled_aspect()
+            self.sample_within_cluster()
+            # for ii, pane in self.image_viewer.image_grid.panes.items():
+            #     pane.show_scaled_aspect()
         elif key == 78: # N
-            self.load_images()
+            self.next_cluster()
         elif key == 66:
             self.resize(2413, 2100)
             #
@@ -716,12 +774,35 @@ class FacApp(QtWidgets.QMainWindow):
 
 
     def load_images(self):
-        
         self.pane_to_idx = list(np.random.randint(0, self.num_images, self.n_subplots).ravel())
 
-        # self.pane_to_idx = []        
-        # for i, _ in enumerate(self.image_viewer.image_grid.panes.values()):
-        #     self.pane_to_idx.append(self.idx[i])
+        end = time.time()
+        self.update_from_idx(list(range(self.n_subplots)))
+        print('Time to update just the viewer ', time.time() - end)
+    
+    def next_cluster(self):
+        to_show = [ii for ii, l in enumerate(self.target) if l == self.curr_cluster]
+        to_hide = [ii for ii, l in enumerate(self.target) if l != self.curr_cluster]
+        self.allowed = [self.indices[ii] for ii, l in enumerate(self.target) if l == self.curr_cluster]
+
+        end = time.time()
+        self.ax.clear()
+        print('Time to clear axis ', time.time() - end)
+
+        self.sample_within_cluster()
+
+        end = time.time()
+        self.ax.scatter(self.embedding[to_hide, 0], self.embedding[to_hide, 1], c=(0.5, 0.5, 0.5), alpha=0.4, s=3)
+        self.ax.scatter(self.embedding[to_show, 0], self.embedding[to_show, 1], c=np.ones((len(to_show),)) * self.curr_cluster, alpha=1.0, s=6, cmap=plt.cm.tab20, vmin=0, vmax=20)
+        self.ax.set_xlim([-5.7, 8]) 
+        self.ax.set_ylim([-5, 7.5])
+
+        self.ax.figure.canvas.draw()
+        print('Time to plot new scene', time.time() - end)
+        self.curr_cluster += 1
+
+    def sample_within_cluster(self):  
+        self.pane_to_idx = random.sample(self.allowed, self.n_subplots)
 
         self.update_from_idx(list(range(self.n_subplots)))
 
@@ -729,11 +810,15 @@ class FacApp(QtWidgets.QMainWindow):
         end = time.time()
         images = []
 
+        end_load = time.time()
         for ii in idxes:
             name = pjoin(self.img_dir,self.image_names[self.pane_to_idx[ii]])
             images.append(pixmap_from_name(name))
+        print('Time to load images', time.time() - end_load)
 
+        end_set = time.time()
         self.image_viewer.set_image(idxes, images)
+        print('Time to set the images', time.time() - end_set)
         print('Time to update screen: {:.4f}'.format(time.time() - end))
 
     def search(self):
@@ -771,7 +856,6 @@ class FacApp(QtWidgets.QMainWindow):
         print(self.feat_df.shape)
 
         # perform the lookup in the appropriate space (facade/windows)
-
         d, idxes = self.fac_knn.nearest(feat)
         idxes = list(idxes.ravel())
 
@@ -840,17 +924,23 @@ class FacApp(QtWidgets.QMainWindow):
     def plot(self):
         ''' plot some random stuff '''
         # random data
-        data = np.random.rand(400, 2)#[random.random() for i in range(10)]
+        # data = np.random.rand(400, 2)#[random.random() for i in range(10)]
 
         # create an axis
-        ax = self.figure.add_subplot(111)
+        self.ax = self.figure.add_subplot(111)
         self.figure.tight_layout()
 
         # discards the old graph
-        ax.clear()
+        self.ax.clear()
 
         # plot data
-        ax.scatter(data[:, 0], data[:, 1])
+        # print('#################', np.unique(self.target))
+        print(type(self.target))
+
+        self.scatter = self.ax.scatter(self.embedding[:, 0], self.embedding[:, 1], c=self.target, alpha=0.8, s=6, cmap=plt.cm.tab20)
+        self.ax.set_xlim([-5.7, 8]) 
+        self.ax.set_ylim([-5, 7.5])
+
 
         # refresh canvas
         self.canvas.draw()
